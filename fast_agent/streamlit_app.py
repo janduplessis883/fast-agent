@@ -1,28 +1,188 @@
 import streamlit as st
+import os
+from crewai import Crew
+from trip_agents import TripAgents
+from trip_tasks import TripTasks
+import datetime
 
-st.image("images/fastagent.png")
+st.set_page_config(page_icon="✈️", layout="wide")
 
-st.sidebar.header('Model')
-ollama_model = st.sidebar.radio(label="Select Model", options=["Ollama 🆓", "GPT-4o 💷"])
+# Helper function to display emoji as a page icon
+def icon(emoji: str):
+    st.write(
+        f'<span style="font-size: 78px; line-height: 1">{emoji}</span>',
+        unsafe_allow_html=True,
+    )
 
-# Define the available tools
-tools = ["SerperSearchTool", "FileTool", "DirectoryTool", "ScrapeWebsiteTool", "PDFSearchTool", "TXTSearchTool","CSVSearchTool","DOCXSearchTool", "YoutubeVideoSearchTool", "YoutubeChannelSearchTool"]
+# Class for managing trip details and AI agents
+class TripCrew:
+    def __init__(self, origin, cities, date_range, interests):
+        self.cities = cities
+        self.origin = origin
+        self.interests = interests
+        self.date_range = date_range
+        self.output_placeholder = st.empty()
+
+    def run(self):
+        agents = TripAgents()
+        tasks = TripTasks()
+
+        city_selector_agent = agents.city_selection_agent()
+        local_expert_agent = agents.local_expert()
+        travel_concierge_agent = agents.travel_concierge()
+
+        identify_task = tasks.identify_task(
+            city_selector_agent,
+            self.origin,
+            self.cities,
+            self.interests,
+            self.date_range
+        )
+
+        gather_task = tasks.gather_task(
+            local_expert_agent,
+            self.origin,
+            self.interests,
+            self.date_range
+        )
+
+        plan_task = tasks.plan_task(
+            travel_concierge_agent,
+            self.origin,
+            self.interests,
+            self.date_range
+        )
+
+        crew = Crew(
+            agents=[
+                city_selector_agent, local_expert_agent, travel_concierge_agent
+            ],
+            tasks=[identify_task, gather_task, plan_task],
+            verbose=True
+        )
+
+        result = crew.kickoff()
+        self.output_placeholder.markdown(result)
+
+        return result
 
 # Title of the app
-st.title("Multi-Select Tool with Arguments")
+st.sidebar.title("CrewAI Agents Front End")
+st.sidebar.subheader("The Model")
 
-# Multi-select tool in the sidebar
+# Radio button to select the model
+selected_model = st.sidebar.radio(
+    "Select the model to run the crew:",
+    ("💷 OpenAI-GPT-4o", "🆓 Ollama-llama3-q8", "🆓 GROQ-llama70b", "💷 Anthropic-Claude")
+)
+
+# Function to set environment variables
+def set_environment_variables(api_key, api_base, model_name):
+    os.environ["OPENAI_API_KEY"] = api_key
+    os.environ["OPENAI_API_BASE"] = api_base
+    os.environ["OPENAI_MODEL_NAME"] = model_name
+    os.environ["MODEL"] = model_name
+
+# Load and set environment variables based on selected model
+try:
+    if selected_model == "💷 OpenAI-GPT-4o":
+        api_key = st.secrets["model_secrets"]["OPENAI_API_KEY"]
+        api_base = st.secrets["model_secrets"]["OPENAI_API_BASE"]
+        model_name = st.secrets["model_secrets"]["OPENAI_MODEL_NAME"]
+        set_environment_variables(api_key, api_base, model_name)
+        st.sidebar.warning("Default Model: 💷 OpenAI-GPT-4o")
+
+    elif selected_model == "🆓 Ollama-llama3-q8":
+        api_key = st.secrets["model_secrets"]["OLLAMA_API_KEY"]
+        api_base = st.secrets["model_secrets"]["OLLAMA_API_BASE"]
+        model_name = st.secrets["model_secrets"]["OLLAMA_MODEL_NAME"]
+        set_environment_variables(api_key, api_base, model_name)
+        st.sidebar.success("Model: 🆓 Ollama-llama3-q8")
+
+    elif selected_model == "🆓 GROQ-llama70b":
+        st.sidebar.success("Model: 🆓 GROQ-llama70b")
+
+    elif selected_model == "💷 Anthropic-Claude":
+        st.sidebar.warning("Model: 💷 Anthropic-Claude")
+
+    else:
+        st.sidebar.warning("No model selected.")
+
+except KeyError as e:
+    st.sidebar.error(f"Missing secret: {e}")
+
+# Sidebar section for tool selection and arguments
+st.sidebar.subheader("Tools")
+tools = ["SerperSearchTool", "FileTool", "DirectoryTool", "ScrapeWebsiteTool", "PDFSearchTool", "TXTSearchTool", "CSVSearchTool", "DOCXSearchTool", "YoutubeVideoSearchTool", "YoutubeChannelSearchTool"]
 selected_tools = st.sidebar.multiselect("Select the tools you want to configure:", tools)
-
-# Dictionary to hold the arguments for each selected tool
 tool_arguments = {}
 
-# Loop through the selected tools and create a text_input for each in the sidebar
 for tool in selected_tools:
     if tool != 'SerperSearchTool':
-        argument = st.sidebar.text_input(f"Enter arguments for {tool}:")
+        argument = st.sidebar.text_input(f"Enter arguments for **{tool}**:")
         tool_arguments[tool] = argument
 
-# Display the tool arguments
-st.write("Tool Arguments:", tool_arguments)
+with st.expander("Tool Arguments:"):
+    st.write(tool_arguments)
 
+with st.expander("AGENTS:"):
+    st.write("Researcher_Agent")
+
+with st.expander("TASKS:"):
+    st.write("Research_Task")
+
+# Main section for trip planning
+if __name__ == "__main__":
+    icon("🏖️ VacAIgent")
+
+    st.subheader("Let AI agents plan your next vacation!", anchor=False)
+
+    today = datetime.datetime.now().date()
+    next_year = today.year + 1
+    jan_16_next_year = datetime.date(next_year, 1, 10)
+
+    with st.sidebar:
+        st.header("👇 Enter your trip details")
+        with st.form("my_form"):
+            location = st.text_input("Where are you currently located?", placeholder="San Mateo, CA")
+            cities = st.text_input("City and country are you interested in vacationing at?", placeholder="Bali, Indonesia")
+            date_range = st.date_input(
+                "Date range you are interested in traveling?",
+                min_value=today,
+                value=(today, jan_16_next_year + datetime.timedelta(days=6)),
+                format="MM/DD/YYYY",
+            )
+            interests = st.text_area("High level interests and hobbies or extra details about your trip?",
+                                     placeholder="2 adults who love swimming, dancing, hiking, and eating")
+
+            submitted = st.form_submit_button("Submit")
+
+        st.markdown("---")
+
+        st.sidebar.markdown(
+            """
+        Credits to [**@joaomdmoura**](https://twitter.com/joaomdmoura) 
+        for creating **crewAI** 🚀
+        """,
+            unsafe_allow_html=True
+        )
+
+        st.sidebar.info("Click the logo to visit GitHub repo", icon="👇")
+        st.sidebar.markdown(
+            """
+        <a href="https://github.com/joaomdmoura/crewAI" target="_blank">
+            <img src="https://raw.githubusercontent.com/joaomdmoura/crewAI/main/docs/crewai_logo.png" alt="CrewAI Logo" style="width:100px;"/>
+        </a>
+        """,
+            unsafe_allow_html=True
+        )
+
+    if submitted:
+        with st.status("🤖 **Agents at work...**", state="running", expanded=True) as status:
+            with st.container():
+                trip_crew = TripCrew(location, cities, date_range, interests)
+                result = trip_crew.run()
+            status.update(label="✅ Trip Plan Ready!", state="complete", expanded=False)
+
+        st.subheader("Here is your Trip Plan", anchor=False)
+        st.markdown(result)
